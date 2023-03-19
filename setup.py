@@ -6,14 +6,13 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
      name='reacher',  
-     version='0.1',
-     # scripts=['reacher.py'] ,
+     version='0.2',
      author="johannes skog",
      author_email="johannes.skog.unsec@gmail.com",
-     description="A Docker and AWS utility package",
+     description="A tool for reaching out to remote machine - excecute code and collect artificats",
      long_description=long_description,
    long_description_content_type="text/markdown",
-     url="https://github.com/javatechy/dokr",
+     url="https://github.com/johannes-skog/reacher",
      packages=["reacher"],
      install_requires=[
         'scp', "paramiko",
