@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
      name='reacher',  
-     version='0.3',
+     version='0.3.1',
      author="johannes skog",
      author_email="johannes.skog.unsec@gmail.com",
      description="A tool for reaching out to remote machine - excecute code and collect artificats",

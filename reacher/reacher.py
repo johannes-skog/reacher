@@ -108,11 +108,20 @@ class RemoteClient:
 
         stdin, stdout, stderr = self.connection.exec_command(command, get_pty=True)
 
+        stdout._set_mode('rb')
+
         if stream:
             
             response = ""
 
             for line in iter(stdout.readline, ""):
+                if line == b"": # finsihed
+                    break
+                try:
+                    line = line.decode("utf-8")
+                except Exception as e:
+                    line = ""
+
                 if not suppress: print(line, end="")
                 response += line
 
@@ -123,6 +132,12 @@ class RemoteClient:
             stdout.channel.recv_exit_status()
             response = stdout.readlines()
             for line in response:
+                if line == b"": # finsihed
+                    break
+                try:
+                    line = line.decode("utf-8")
+                except Exception as e:
+                    line = ""
                 if not suppress: print(line)
                 
         stderr.channel.recv_exit_status()
@@ -337,7 +352,7 @@ class Reacher(object):
 
     def attach_named_session(self, named_session: str):
 
-        self.execute_command(f"screen -r -d {named_session}", a)
+        self.execute_command(f"screen -r -d {named_session}")
 
     def kill_named_session(self, named_session: str):
 
@@ -398,8 +413,6 @@ class Reacher(object):
         ).strip("\n").strip("\r")
 
         return self._build_name in r
-
-    
 
     if __name__ == "__main__":
 
