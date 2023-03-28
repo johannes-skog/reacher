@@ -102,7 +102,11 @@ class RemoteClient:
         
         self.scp.get(remote_filepath)
 
-        shutil.move(file_name, local_path)
+        # shutil.move only overwrites if the destination is absolut
+        shutil.move(
+            os.path.abspath(file_name),
+            os.path.join(os.path.abspath(local_path), file_name)
+        )
 
     def execute_command(self, command: str, stream: bool = False, suppress: bool = False):
 
@@ -130,14 +134,15 @@ class RemoteClient:
         else:
 
             stdout.channel.recv_exit_status()
-            response = stdout.readlines()
-            for line in response:
+            response = ""
+            for line in stdout.readlines():
                 if line == b"": # finsihed
                     break
                 try:
                     line = line.decode("utf-8")
                 except Exception as e:
                     line = ""
+                response += line
                 if not suppress: print(line)
                 
         stderr.channel.recv_exit_status()
@@ -163,11 +168,31 @@ class Reacher(object):
 
     def __init__(
         self,
-        client: RemoteClient,
         build_name: str,
         image_name: str,
         build_context: str,
+        client: RemoteClient = None,
+        host: str = None,
+        user: str = None,
+        password: str = None,
+        ssh_key_filepath: str = None
     ):
+
+        if client is None:
+
+            assert (
+                host is not None
+                and user is not None
+                and password is not None
+                and ssh_key_filepath is not None
+            )
+
+            client = RemoteClient(
+                host=host,
+                user=user,
+                password=password,
+                ssh_key_filepath=ssh_key_filepath,
+            )
 
         self._client = client
         self._build_name = build_name
@@ -235,10 +260,13 @@ class Reacher(object):
     def artifacts(self):
 
         r = self._client.execute_command(
-            f"ls {self.artifact_path}",
+            f"ls -1 {self.artifact_path}",
+            suppress=True,
         )
 
-        r = [x.strip("\n").strip("\r") for x in r]
+        r = r.replace("\n", "").split("\r")
+
+        r = [x for x in r if (isinstance(x, str) and x != "")]
 
         return r
 

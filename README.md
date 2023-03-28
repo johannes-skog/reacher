@@ -41,6 +41,22 @@ reacher = Reacher(
     build_context="dockercontext"
 )
 ```
+
+or send in the aruments for RemoteClient direcly to Reacher
+
+```python
+reacher = Reacher(
+    client=client,
+    build_name="base",
+    image_name="base",
+    build_context="dockercontext",
+    host=config["HOST"],
+    user=config["USER"],
+    password=config["PASSWORD"],
+    ssh_key_filepath=config["SSH_KEY_PATH"]
+)
+```
+
 build_context should contain everything for building the docker image on the remote. It might look like,
 
 ```bash
