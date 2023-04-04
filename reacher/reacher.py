@@ -142,9 +142,10 @@ class RemoteClient:
                     line = line.decode("utf-8")
                 except Exception as e:
                     line = ""
+
                 response += line
                 if not suppress: print(line)
-                
+
         stderr.channel.recv_exit_status()
         for line in stderr.readlines():
             print(line)
@@ -391,11 +392,17 @@ class Reacher(object):
         ports: List[int] = None,
         envs: Dict[str, str] = None,
         command: str = "sleep infinity",
+        gpu: bool = False,
     ):
 
         self.clear()
 
-        ctx = f"docker run -dt -w {Reacher.CON_WORKSPACE_PATH} --name {self._build_name}"
+        extra_args = ""
+
+        if gpu:
+            extra_args = "--runtime=nvidia --gpus all"
+
+        ctx = f"docker run -dt {extra_args} -w {Reacher.CON_WORKSPACE_PATH} --name {self._build_name}"
 
         ctx = f"{ctx} -v {self.artifact_path}:{Reacher.CON_WORKSPACE_PATH}/{Reacher.CON_ARTIFACATS_PATH}"
         ctx = f"{ctx} -v  {self.log_path}:{Reacher.CON_WORKSPACE_PATH}/{Reacher.CON_LOGS_PATH}"
@@ -423,22 +430,18 @@ class Reacher(object):
     @property
     def is_running(self):
 
-        r = " ".join(
-            self._client.execute_command(
+        r = self._client.execute_command(
                 'docker ps --format {{.Names}}', suppress=True,
-            )
-        ).strip("\n").strip("\r")
+        ).replace("\r", "").split("\n")
 
         return self._build_name in r
 
     @property
     def exists(self):
 
-        r = " ".join(
-            self._client.execute_command(
+        r = self._client.execute_command(
                 'docker ps -a --format {{.Names}}', suppress=True,
-            )
-        ).strip("\n").strip("\r")
+        ).replace("\r", "").split("\n")
 
         return self._build_name in r
 
