@@ -1,12 +1,16 @@
 # Reacher
 
-From your local machine, Reacher will,
+From your local machine, ReacherDocker will,
 
 + build a docker image on the remote (docker must already be installed and ssh enabled) according to specifications
 + set up container on the remote with port port-forwarding and enviroment variables 
 + execute your local code on the remote, in the container, with printouts shown as your were running it locally
 + upload/download files from the container to your local machine
 
+and for your local machine, Reacher will,
+
++ execute your local code on the remote, with printouts shown as your were running it locally
++ upload/download files from the remote to your local machine
 
 # Getting started...
 
@@ -20,7 +24,7 @@ pip install python-dotenv
 First we must setup a connection to the remote, RemoteClient will create a ssh connection between the local and remote machine.
 
 ```python
-from reacher.reacher import Reacher, RemoteClient
+from reacher.reacher import Reacher, ReacherDocker, RemoteClient
 from dotenv import dotenv_values
 config = dotenv_values()  # take environment variables from .env.
 client = RemoteClient(
@@ -31,10 +35,10 @@ client = RemoteClient(
 )
 ```
 
-the connection is sent to Reacher together with the name of the image that we want to build and the name of the container.
+the connection is sent to ReacherDocker together with the name of the image that we want to build and the name of the container.
 
 ```python
-reacher = Reacher(
+reacher = ReacherDocker(
     client=client,
     build_name="base",
     image_name="base",
@@ -45,7 +49,7 @@ reacher = Reacher(
 or send in the aruments for RemoteClient direcly to Reacher
 
 ```python
-reacher = Reacher(
+reacher = ReacherDocker(
     client=client,
     build_name="base",
     image_name="base",
@@ -64,7 +68,7 @@ $ ls dockercontext/
 Dockerfile  requirements.txt
 ```
 
-Once Reacher has been setup we can build the image on the remote. Reacher will send the build_context to the remote and
+Once ReacherDocker has been setup we can build the image on the remote. ReacherDocker will send the build_context to the remote and
 trigger docker to build an image according to the specifications in the Dockerfile
 
 ```python
@@ -85,6 +89,55 @@ and thereafter we can setup the docker container. Reacher will make sure this co
 ```python
 reacher.setup(ports=[8888, 6666], envs=dotenv_values(".env"))
 ```
+
+If you want to execute the code direcly on the remote, not in a container, go for Reacher. Reacher will use the remote enviroment, as is, when executing the commands.
+
+```python
+reacher = Reacher(
+    build_name="base",
+    host=config["HOST"],
+    user=config["USER"],
+    password=config["PASSWORD"],
+    ssh_key_filepath=config["SSH_KEY_PATH"]
+)
+```
+
+# Port-forwarding between remote and local
+
+If you want to access some service on the remote, you can forward the traffic on the ports of the remote to the local machine.
+
+```python
+reacher.add_port_forward(remote_port=6006, local_port=5998, paramiko=True)
+```
+
+this will spin of a seperate daemon thread handling the port-forwading. Set paramiko to False to trigger a system call for the port forwarding instead.
+
+
+# Put and getting files
+
+Supports list of files or single files
+
+```python
+reacher.put(["setup.py", "build.sh", "reacher"], <destination>)
+```
+
+default destination is root directory of the build.
+
+```python
+reacher.get(["setup.py", "build.sh", "reacher"], <destination>)
+```
+
+default destination is ```.reacher/build_name```, relative your local path.
+
+Use ```reacher.ls(base_path)``` to list files on the remote.
+
+# Running commands on the remote 
+
+```python
+reacher.execute_command("ls", wrap_in_screen=True, named_session="test")
+```
+
+wrap the command in a screen if running something that you want make persistent. If named_session is not specified an unique id will be created for the sesssion.
 
 # Running code on the remote 
 
@@ -180,8 +233,3 @@ Hello from class Dependency
 [screen is terminating]
 ```
 
-## Generate artifact 
-
-In many cases we want to run some code on the remote and afterwards collect some artifacts.
-
-Everything that is saved in the artifact directory will be available for us to download to the local machine. 
