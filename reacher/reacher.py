@@ -168,6 +168,12 @@ class Reacher(object):
     WORKSPACE_PATH = "~/.reacher"
     BUILD_PATH = ""
 
+    EXCLUDES = [
+        ".git",
+        ".__pycache__",
+        "logs",
+    ]
+
     def __init__(
         self,
         build_name: str,
@@ -247,17 +253,22 @@ class Reacher(object):
 
         self.setup()
 
-    def ls(self, folder: str = None):
+    def ls(self, folder: str = None, supress: bool = False):
 
         if folder is None:
             folder = self.build_path
         else:
             folder = os.path.join(self.build_path, folder)
 
-        r = self._client.execute_command(
+        r = self.execute_command(
             f"find {folder} -print",
-            suppress=False,
-        )
+            suppress=supress,
+            stream=False,
+        ).replace("\n", "").split("\r")
+
+        r = [x for x in r if x != "" and x != "."]
+
+        return r
 
     def put(self, path: str, destination_folder: str = None):
         
@@ -362,7 +373,7 @@ class ReacherDocker(Reacher):
 
     MOUNTED = [
         Reacher.ARTIFACATS_PATH,
-        Reacher.LOGS_PATH
+        Reacher.LOGS_PATH, 
     ]
 
     def __init__(
@@ -414,6 +425,21 @@ class ReacherDocker(Reacher):
 
         super().clear()
 
+    def ls(self, folder: str = None, supress: bool = False):
+
+        if folder is None:
+            folder = "."
+
+        r = self.execute_command(
+            f"find {folder} -print",
+            suppress=supress,
+            stream=False,
+        ).replace("\n", "").split("\r")
+
+        r = [x for x in r if x != "" and x != "."]
+
+        return r
+
     def build(self):
 
         self.clear()
@@ -443,22 +469,20 @@ class ReacherDocker(Reacher):
             suppress=suppress,
         )
 
-    def _clear_container(self):
+    def clear_container(self):
 
-        ls = self.execute_command("ls", stream=False, suppress=True)
+        files = self.ls(supress=True)
+        files_pruned = []
 
-        ls = " ".join(ls).split()   
-
-        ls = [
-            x.strip('\n').strip('\r').replace("\t", '') for x in ls
-        ]
-
-        ls = [
-            x for x in ls if (x not in Reacher.MOUNTED)
-        ]
-
-        if len(ls) > 0:
-            cmd = f"rm -r {' '.join(ls)}"
+        for x in files:
+            if any([f in x for f in self.MOUNTED]):
+                continue
+            if x == "" or x == "." or x == "..":
+                continue
+            files_pruned.append(x)
+        
+        if len(files_pruned) > 0:
+            cmd = f"rm -r {' '.join(files_pruned)}"
             self.execute_command(cmd)
 
     def execute(
@@ -471,7 +495,7 @@ class ReacherDocker(Reacher):
     ):  
 
         if clear_container:
-            self._clear_container()
+            self.clear_container()
 
         tmp_path = os.path.join(self.build_path, "src")
         self._client.execute_command(f"mkdir -p {tmp_path}")
@@ -488,7 +512,7 @@ class ReacherDocker(Reacher):
             )
 
         self._client.execute_command(
-            f"docker cp {tmp_path}/. {self._build_name}:/{Reacher.CON_WORKSPACE_PATH}"
+            f"docker cp {tmp_path}/. {self._build_name}:/{ReacherDocker.CON_WORKSPACE_PATH}"
         )
 
         self._client.execute_command(f"rm -r {tmp_path}")
@@ -514,10 +538,10 @@ class ReacherDocker(Reacher):
         if gpu:
             extra_args = "--runtime=nvidia --gpus all"
 
-        ctx = f"docker run -dt {extra_args} -w {Reacher.CON_WORKSPACE_PATH} --name {self._build_name}"
+        ctx = f"docker run -dt {extra_args} -w {ReacherDocker.CON_WORKSPACE_PATH} --name {self._build_name}"
 
-        ctx = f"{ctx} -v {self.artifact_path}:{Reacher.CON_WORKSPACE_PATH}/{Reacher.ARTIFACATS_PATH}"
-        ctx = f"{ctx} -v  {self.log_path}:{Reacher.CON_WORKSPACE_PATH}/{Reacher.LOGS_PATH}"
+        ctx = f"{ctx} -v {self.artifact_path}:{ReacherDocker.CON_WORKSPACE_PATH}/{Reacher.ARTIFACATS_PATH}"
+        ctx = f"{ctx} -v  {self.log_path}:{ReacherDocker.CON_WORKSPACE_PATH}/{Reacher.LOGS_PATH}"
 
         if ports is not None:
             for p in ports:
