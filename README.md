@@ -42,7 +42,7 @@ reacher = ReacherDocker(
     client=client,
     build_name="base",
     image_name="base",
-    build_context="dockercontext"
+    build_context="dockercontext",
 )
 ```
 
@@ -98,9 +98,12 @@ reacher = Reacher(
     host=config["HOST"],
     user=config["USER"],
     password=config["PASSWORD"],
-    ssh_key_filepath=config["SSH_KEY_PATH"]
+    ssh_key_filepath=config["SSH_KEY_PATH"],
+    prefix_cmd="PATH=...."
 )
 ```
+
+```prefix_cmd``` is useful to set when we want to specify some PATH or when we want to source an venv before running a command. 
 
 # Port-forwarding between remote and local
 
@@ -138,6 +141,7 @@ reacher.execute_command("ls", wrap_in_screen=True, named_session="test")
 ```
 
 wrap the command in a screen if running something that you want make persistent. If named_session is not specified an unique id will be created for the sesssion.
+```reacher.list_named_sessions()``` will list current sessions and ```reacher.kill_named_sessions(<session_name>)``` will kill the selected session.
 
 # Running code on the remote 
 
@@ -162,18 +166,13 @@ and then we execute it on the remote inside our controlled docker enviroment.
 
 ```python
 reacher.execute(
-    file="simple_test.py",
     command="python simple_test.py",
+    context=["simple_test.py"],
     named_session="simple_test",
-    # Before sending the code to the remote, clean the container from previous runs.
-    clear_container=True, 
+    # clean the container from previous runs.
+    cleanup_before=True, 
+    wrap_in_screen=True,
 )
-
-Preparing to copy...
-
-Copying to container - 2.56kB
-
-Successfully copied 2.56kB to base://workspace
 
 Hello from remote
 Hello from remote
@@ -190,9 +189,7 @@ There is a screen on:
 	22.simple_test	(03/19/23 18:20:07)	(Attached)
 1 Socket in /run/screen/S-root.
 ```
-
 we can always attach to a named session to continue to get printouts.
-
 
 ```python
 reacher.attach_named_session("simple_test")
@@ -217,17 +214,10 @@ d = Dependency()
 
 ```python
 reacher.execute(
-    context_folder="src",
-    file="dependency_test.py",
     command="python dependency_test.py",
+    context=["src", "dependency_test.py"],
     named_session="dependency_test",
 )
-
-Preparing to copy...
-
-Copying to container - 3.584kB
-
-Successfully copied 3.584kB to base://workspace
 
 Hello from class Dependency
 [screen is terminating]
