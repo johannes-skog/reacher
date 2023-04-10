@@ -9,7 +9,6 @@ from paramiko import AutoAddPolicy, RSAKey, SSHClient
 from paramiko.auth_handler import AuthenticationException, SSHException
 from scp import SCPClient, SCPException
 import logging
-import shutil
 import socket
 import select
 import sys
@@ -182,7 +181,8 @@ class Reacher(object):
         port: int = 22,
         user: str = None,
         password: str = None,
-        ssh_key_filepath: str = None
+        ssh_key_filepath: str = None,
+        prefix_cmd: str = None,
     ):
 
         if client is None:
@@ -204,6 +204,8 @@ class Reacher(object):
         self._client = client
     
         self._port_forwarding = PortForwarding(client=self._client)
+
+        self._prefix_cmd = prefix_cmd
 
         self._build_name = build_name
     
@@ -245,15 +247,25 @@ class Reacher(object):
             f"mkdir -p {self.build_path} && mkdir -p {self.artifact_path} && mkdir -p {self.log_path}"
         )
 
-    def clear(self):
+    def cleanup(self, exclude: list = ["artifacts", "logs"]):
 
-        self._client.execute_command(
-            f"rm -rf {self.build_path}", suppress=True,
-        )
+        files = self.ls()
+        files_pruned = []
+
+        for x in files:
+            if any([f in x for f in exclude]):
+                continue
+            if x == "" or x == "." or x == "..":
+                continue
+            files_pruned.append(x)
+
+        if len(files_pruned) > 0:
+            cmd = f"rm -r {' '.join(files_pruned)}"
+            self.execute_command(cmd)
 
         self.setup()
 
-    def ls(self, folder: str = None, supress: bool = False):
+    def ls(self, folder: str = None):
 
         if folder is None:
             folder = self.build_path
@@ -261,8 +273,8 @@ class Reacher(object):
             folder = os.path.join(self.build_path, folder)
 
         r = self.execute_command(
-            f"find {folder} -print",
-            suppress=supress,
+            f"find {folder} -mindepth 1 -print",
+            suppress=True,
             stream=False,
         ).replace("\n", "").split("\r")
 
@@ -309,6 +321,10 @@ class Reacher(object):
         named_session = named_session if named_session is not None else uuid.uuid4()
 
         return f"screen -S {named_session} {command}"
+    
+    def _wrap_command_in_prefix(self, command: str):
+        
+        return f"{self._prefix_cmd};{command}"
 
     def execute_command(
         self,
@@ -322,6 +338,9 @@ class Reacher(object):
         if wrap_in_screen:
             command = self._wrap_command_in_screen(command, named_session=named_session)
 
+        if self._prefix_cmd is not None:
+            command = self._wrap_command_in_prefix(command)
+
         command = f"cd {self.build_path} && {command}"
 
         return self._client.execute_command(
@@ -333,26 +352,22 @@ class Reacher(object):
     def execute(
         self,
         command: str,
-        file: str = None,
-        context_folder: str = None,
+        context: Union[str, List[str]] = None,
         named_session: str = None,
-    ):  
+        wrap_in_screen: bool = True,
+        cleanup_before: bool = True,
+    ):      
+        
+        if cleanup_before:
+            self.cleanup()
 
-        if file is not None:
-            self._client.upload_dir(file, self.build_path)
-        if context_folder is not None:
-            e = context_folder.split("/")[-1]
-            intermidiate = os.path.join(self.build_path, "trash0")
-            self._client.upload_dir(context_folder, intermidiate)
-            self.execute_command(
-                f"mv {intermidiate}/{e}/* {self.build_path} && rm -r {intermidiate}",
-                wrap_in_screen=False,
-            )
+        if context is not None:
+            self._client.upload_dir(context, self.build_path)
 
         self.execute_command(
             command,
             named_session=named_session,
-            wrap_in_screen=True,
+            wrap_in_screen=wrap_in_screen,
         )
 
     def list_named_sessions(self):
@@ -425,14 +440,14 @@ class ReacherDocker(Reacher):
 
         super().clear()
 
-    def ls(self, folder: str = None, supress: bool = False):
+    def ls(self, folder: str = None):
 
         if folder is None:
             folder = "."
 
         r = self.execute_command(
-            f"find {folder} -print",
-            suppress=supress,
+            f"find {folder} -mindepth 1 -print",
+            suppress=True,
             stream=False,
         ).replace("\n", "").split("\r")
 
@@ -469,47 +484,23 @@ class ReacherDocker(Reacher):
             suppress=suppress,
         )
 
-    def clear_container(self):
-
-        files = self.ls(supress=True)
-        files_pruned = []
-
-        for x in files:
-            if any([f in x for f in self.MOUNTED]):
-                continue
-            if x == "" or x == "." or x == "..":
-                continue
-            files_pruned.append(x)
-        
-        if len(files_pruned) > 0:
-            cmd = f"rm -r {' '.join(files_pruned)}"
-            self.execute_command(cmd)
-
     def execute(
         self,
         command: str,
-        file: str = None,
-        context_folder: str = None,
+        context: Union[str, List[str]] = None,
         named_session: str = None,
-        clear_container: bool = False,
+        cleanup_before: bool = False,
+        wrap_in_screen: bool = True,
     ):  
 
-        if clear_container:
-            self.clear_container()
+        if cleanup_before:
+            self.cleanup()
 
-        tmp_path = os.path.join(self.build_path, "src")
+        tmp_path = os.path.join(self.build_path, "tmp")
         self._client.execute_command(f"mkdir -p {tmp_path}")
 
-        if file is not None:
-            self._client.upload_dir(file, tmp_path)
-        
-        if context_folder is not None:
-            e = context_folder.split("/")[-1]
-            intermidiate = os.path.join(self.build_path, "trash0")
-            self._client.upload_dir(context_folder, intermidiate)
-            self._client.execute_command(
-                f"mv {intermidiate}/{e}/* {tmp_path} && rm -r {intermidiate}"
-            )
+        if context is not None:
+            self._client.upload_dir(context, tmp_path)
 
         self._client.execute_command(
             f"docker cp {tmp_path}/. {self._build_name}:/{ReacherDocker.CON_WORKSPACE_PATH}"
@@ -520,7 +511,7 @@ class ReacherDocker(Reacher):
         self.execute_command(
             command,
             named_session=named_session,
-            wrap_in_screen=True
+            wrap_in_screen=wrap_in_screen
         )
 
     def setup(
@@ -650,9 +641,9 @@ def forward_tunnel_system(
         local_port,
         remote_port,
         client,
-):
+):  
 
-    command = f"ssh -L {local_port}:localhost:{remote_port} -N {client.user}@{client.host} -p {client.port}"
+    command = f"ssh -o StrictHostKeyChecking=no -i {client.ssh_key_filepath} -L 0.0.0.0:{local_port}:localhost:{remote_port} -N {client.user}@{client.host} -p {client.port}"
     
     os.system(command)
     
