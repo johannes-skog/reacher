@@ -116,19 +116,16 @@ class RemoteClient:
                 # Traverse the directory tree
                 for dirpath, _, filenames in os.walk(filepath):
 
-                    remote_dirpath = os.path.join(remote_path, os.path.relpath(dirpath, filepath))
+                    remote_dirpath = os.path.join(remote_path, dirpath)
 
                     # Create remote directories if they don't exist
                     self.execute_command(f"mkdir -p {remote_dirpath}")
 
                     # Iterate through files
                     for filename in filenames:
-                        
                         local_path = os.path.join(dirpath, filename)
-                        remote_file_path = os.path.join(remote_dirpath, filename)
-
                         # Upload the file
-                        self.upload_file(local_path, remote_file_path, excluded_exts)
+                        self.upload_file(local_path, remote_dirpath, excluded_exts)
                       
                 logging.info(
                     f"Finished uploading {filepath} files to {remote_path} on {self.host}"
@@ -711,4 +708,3 @@ class PortForwarding(object):
         self._threads.append(x)
         
         self._threads[-1].start()
-    
