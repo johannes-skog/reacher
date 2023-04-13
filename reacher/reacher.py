@@ -95,19 +95,55 @@ class RemoteClient:
         if self.scp:
             self.scp.close()
 
-    def upload_dir(self, filepath: str, remote_path: str):
-        
+    def upload_file(self, filepath: str, remote_path: str, excluded_exts: List[str] = [".pyc"]):
+
+        if not any(filepath.endswith(ext) for ext in excluded_exts):
+            self.scp.put(filepath, remote_path)
+            logging.info(f"Finished uploading {filepath} to {remote_path} on {self.host}")
+        else:
+            logging.info(f"Skipping {filepath} due to excluded extension")
+    
+    def _upload(self, filepath: str, remote_path: str, excluded_exts: List[str] = [".pyc"]):
+
+        # Execute command to create the remote directory
         self.execute_command(f"mkdir -p {remote_path}")
+
+        if os.path.isfile(filepath):
+            self.upload_file(filepath, remote_path, excluded_exts)
+        else:
         
-        try:
-            self.scp.put(filepath, remote_path=remote_path, recursive=True)
-            logging.info(
-                f"Finished uploading {filepath} files to {remote_path} on {self.host}"
-            )
-        except SCPException as e:
-            logging.error(f"SCPException during bulk upload: {e}")
-        except Exception as e:
-            logging.error(f"Unexpected exception during bulk upload: {e}")
+            try:
+                # Traverse the directory tree
+                for dirpath, _, filenames in os.walk(filepath):
+
+                    remote_dirpath = os.path.join(remote_path, os.path.relpath(dirpath, filepath))
+
+                    # Create remote directories if they don't exist
+                    self.execute_command(f"mkdir -p {remote_dirpath}")
+
+                    # Iterate through files
+                    for filename in filenames:
+                        
+                        local_path = os.path.join(dirpath, filename)
+                        remote_file_path = os.path.join(remote_dirpath, filename)
+
+                        # Upload the file
+                        self.upload_file(local_path, remote_file_path, excluded_exts)
+                      
+                logging.info(
+                    f"Finished uploading {filepath} files to {remote_path} on {self.host}"
+                )
+
+            except Exception as e:
+                logging.error(f"Unexpected exception during bulk upload: {e}")
+
+    def upload(self, filepaths: List[str], remote_path: str, excluded_exts: List[str] = [".pyc"]):
+
+        if not isinstance(filepaths, list):
+            filepaths = [filepaths]
+
+        for filepath in filepaths:
+            self._upload(filepath, remote_path, excluded_exts)
 
     def download_file(self, remote_filepath: str, local_path: str):
 
@@ -261,7 +297,7 @@ class Reacher(object):
 
         if len(files_pruned) > 0:
             cmd = f"rm -r {' '.join(files_pruned)}"
-            self.execute_command(cmd)
+            self.execute_command(cmd, suppress=True)
 
         self.setup()
 
@@ -282,7 +318,7 @@ class Reacher(object):
 
         return r
 
-    def put(self, path: str, destination_folder: str = None):
+    def put(self, path: str, destination_folder: str = None, excluded_exts: list = [".pyc"]):
         
         if destination_folder is None:
             destination_folder = self.build_path
@@ -293,7 +329,14 @@ class Reacher(object):
             path = [path]
 
         for p in path:
-            self._client.upload_dir(p, destination_folder)
+            self._client.upload(p, destination_folder, excluded_exts=excluded_exts)
+
+        # make sure all files are owned by the user
+        self._client.execute_command(
+            f"find {self.build_path}" + " -user $(whoami) -exec chmod 777 {} \;",
+            stream=False,
+            suppress=False,
+        )
 
     def get(self, path: Union[List[str], str], destination_folder: str = None):
 
@@ -348,28 +391,7 @@ class Reacher(object):
             stream=stream,
             suppress=suppress,
         )
-
-    def execute(
-        self,
-        command: str,
-        context: Union[str, List[str]] = None,
-        named_session: str = None,
-        wrap_in_screen: bool = True,
-        cleanup_before: bool = True,
-    ):      
-        
-        if cleanup_before:
-            self.cleanup()
-
-        if context is not None:
-            self._client.upload_dir(context, self.build_path)
-
-        self.execute_command(
-            command,
-            named_session=named_session,
-            wrap_in_screen=wrap_in_screen,
-        )
-
+    
     def list_named_sessions(self):
 
         self.execute_command(f"screen -list")
@@ -421,7 +443,7 @@ class ReacherDocker(Reacher):
 
         super()._setup_remote()
 
-        self._client.upload_dir(
+        self._client.upload(
             self._build_context,
             self.build_path,
         )
@@ -437,8 +459,6 @@ class ReacherDocker(Reacher):
             self._client.execute_command(
                 f"docker rm {self._build_name}", suppress=True,
             )
-
-        super().clear()
 
     def ls(self, folder: str = None):
 
@@ -491,22 +511,14 @@ class ReacherDocker(Reacher):
         named_session: str = None,
         cleanup_before: bool = False,
         wrap_in_screen: bool = True,
+        excluded_exts: list = [".pyc"],
     ):  
 
         if cleanup_before:
             self.cleanup()
 
-        tmp_path = os.path.join(self.build_path, "tmp")
-        self._client.execute_command(f"mkdir -p {tmp_path}")
-
         if context is not None:
-            self._client.upload_dir(context, tmp_path)
-
-        self._client.execute_command(
-            f"docker cp {tmp_path}/. {self._build_name}:/{ReacherDocker.CON_WORKSPACE_PATH}"
-        )
-
-        self._client.execute_command(f"rm -r {tmp_path}")
+            self._client.upload(context, self.build_path, excluded_exts)
 
         self.execute_command(
             command,
@@ -531,8 +543,7 @@ class ReacherDocker(Reacher):
 
         ctx = f"docker run -dt {extra_args} -w {ReacherDocker.CON_WORKSPACE_PATH} --name {self._build_name}"
 
-        ctx = f"{ctx} -v {self.artifact_path}:{ReacherDocker.CON_WORKSPACE_PATH}/{Reacher.ARTIFACATS_PATH}"
-        ctx = f"{ctx} -v  {self.log_path}:{ReacherDocker.CON_WORKSPACE_PATH}/{Reacher.LOGS_PATH}"
+        ctx = f"{ctx} -v {self.build_path}:{ReacherDocker.CON_WORKSPACE_PATH}"
 
         if ports is not None:
             for p in ports:
@@ -700,3 +711,4 @@ class PortForwarding(object):
         self._threads.append(x)
         
         self._threads[-1].start()
+    
