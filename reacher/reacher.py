@@ -12,6 +12,7 @@ import logging
 import socket
 import select
 import sys
+import time
 
 try:
     import SocketServer
@@ -148,17 +149,33 @@ class RemoteClient:
 
         self.scp.get(remote_filepath, local_path=local_path, recursive=True)
 
-    def execute_command(self, command: str, stream: bool = False, suppress: bool = False):
+    def execute_command(
+            self,
+            command: str,
+            stream: bool = False,
+            suppress: bool = False,
+            ignore_output: bool = False,
+            timeout: int = None,
+    ):
 
         stdin, stdout, stderr = self.connection.exec_command(command, get_pty=True)
 
+        if ignore_output:
+            return
+
         stdout._set_mode('rb')
+
+        last_recieved = time.time()
 
         if stream:
             
             response = ""
 
             for line in iter(stdout.readline, ""):
+                
+                if timeout is not None and (time.time() - last_recieved > timeout):
+                    break
+
                 if line == b"": # finsihed
                     break
                 try:
@@ -169,6 +186,8 @@ class RemoteClient:
                 if not suppress: print(line, end="")
                 response += line
 
+                last_recieved = time.time()
+
             response = None
                         
         else:
@@ -176,6 +195,10 @@ class RemoteClient:
             stdout.channel.recv_exit_status()
             response = ""
             for line in stdout.readlines():
+
+                if timeout is not None and (time.time() - last_recieved > timeout):
+                    break
+
                 if line == b"": # finsihed
                     break
                 try:
@@ -185,6 +208,8 @@ class RemoteClient:
 
                 response += line
                 if not suppress: print(line)
+
+                last_recieved = time.time()
 
         stderr.channel.recv_exit_status()
         for line in stderr.readlines():
@@ -365,6 +390,29 @@ class Reacher(object):
     def _wrap_command_in_prefix(self, command: str):
         
         return f"{self._prefix_cmd};{command}"
+    
+    def execute(
+        self,
+        command: str,
+        context: Union[str, List[str]] = None,
+        named_session: str = None,
+        cleanup_before: bool = False,
+        wrap_in_screen: bool = True,
+        excluded_exts: list = [".pyc"],
+    ):  
+
+        if cleanup_before:
+            self.cleanup()
+
+        if context is not None:
+            self._client.upload(context, self.build_path, excluded_exts)
+
+        self.execute_command(
+            command,
+            named_session=named_session,
+            wrap_in_screen=wrap_in_screen
+        )
+
 
     def execute_command(
         self,
@@ -373,6 +421,8 @@ class Reacher(object):
         suppress: bool = False,
         named_session: str = None,
         wrap_in_screen: bool = False,
+        ignore_output: bool = False,
+        timeout: int = None,
     ):  
 
         if wrap_in_screen:
@@ -387,6 +437,8 @@ class Reacher(object):
             command,
             stream=stream,
             suppress=suppress,
+            ignore_output=ignore_output,
+            timeout=timeout,
         )
     
     def list_named_sessions(self):
@@ -488,6 +540,7 @@ class ReacherDocker(Reacher):
         suppress: bool = False,
         named_session: str = None,
         wrap_in_screen: bool = False,
+        ignore_output: bool = False,
     ):  
 
         if wrap_in_screen or named_session is not None:
@@ -499,28 +552,7 @@ class ReacherDocker(Reacher):
             command,
             stream=stream,
             suppress=suppress,
-        )
-
-    def execute(
-        self,
-        command: str,
-        context: Union[str, List[str]] = None,
-        named_session: str = None,
-        cleanup_before: bool = False,
-        wrap_in_screen: bool = True,
-        excluded_exts: list = [".pyc"],
-    ):  
-
-        if cleanup_before:
-            self.cleanup()
-
-        if context is not None:
-            self._client.upload(context, self.build_path, excluded_exts)
-
-        self.execute_command(
-            command,
-            named_session=named_session,
-            wrap_in_screen=wrap_in_screen
+            ignore_output=ignore_output,
         )
 
     def setup(
@@ -708,3 +740,49 @@ class PortForwarding(object):
         self._threads.append(x)
         
         self._threads[-1].start()
+
+
+## Some helper functions for creating notebooks and tensorboards
+
+def create_notebook(
+        reacher: Reacher,
+        remote_port: int,
+        local_port: int,
+        paramiko: bool = False
+    ):
+
+    reacher.execute_command(
+        f"jupyter notebook --ip 0.0.0.0 --allow-root --port {remote_port}",
+        wrap_in_screen=True,
+        named_session="notebook",
+        ignore_output=True,
+        timeout=1,
+    )
+
+    reacher.add_port_forward(remote_port=remote_port, local_port=local_port, paramiko=paramiko)
+
+    r = reacher.execute_command("jupyter notebook list", stream=False, suppress=True)
+
+    r = r.replace(str(remote_port), str(local_port))
+
+    print(r)
+
+def create_tensorboard(
+    reacher: Reacher,
+    remote_port: int,
+    local_port: int,
+    paramiko: bool = False,
+    logdir: str = "artifacts"
+):
+
+    reacher.execute_command(
+        f"tensorboard --host 0.0.0.0 --port {remote_port} --logdir {logdir}",
+        wrap_in_screen=True,
+        named_session="tensorboard",
+        ignore_output=True,
+        timeout=1,
+    )
+
+    reacher.add_port_forward(remote_port=remote_port, local_port=local_port, paramiko=paramiko)
+
+    print(f"tensorboard running on\nhttp://0.0.0.0:{local_port}/")
