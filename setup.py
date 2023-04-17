@@ -6,12 +6,12 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
      name='reacher',  
-     version='0.3.8',
+     version='0.4.0',
      author="johannes skog",
      author_email="johannes.skog.unsec@gmail.com",
      description="A tool for reaching out to remote machine - excecute code and collect artificats",
      long_description=long_description,
-   long_description_content_type="text/markdown",
+     long_description_content_type="text/markdown",
      url="https://github.com/johannes-skog/reacher",
      packages=["reacher"],
      install_requires=[

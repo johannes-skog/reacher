@@ -150,12 +150,12 @@ class RemoteClient:
         self.scp.get(remote_filepath, local_path=local_path, recursive=True)
 
     def execute_command(
-            self,
-            command: str,
-            stream: bool = False,
-            suppress: bool = False,
-            ignore_output: bool = False,
-            timeout: int = None,
+        self,
+        command: str,
+        stream: bool = False,
+        suppress: bool = False,
+        ignore_output: bool = False,
+        timeout: int = None,
     ):
 
         stdin, stdout, stderr = self.connection.exec_command(command, get_pty=True)
@@ -363,7 +363,7 @@ class Reacher(object):
     def get(self, path: Union[List[str], str], destination_folder: str = None):
 
         if destination_folder is None:
-            destination_folder = os.path.join(".reacher", self._build_name)
+            destination_folder = "."
 
         if not isinstance(path, list):
             path = [path]
@@ -774,6 +774,8 @@ def create_tensorboard(
     paramiko: bool = False,
     logdir: str = "artifacts"
 ):
+    
+    reacher.execute_command(f"mkdir -p {logdir}")
 
     reacher.execute_command(
         f"tensorboard --host 0.0.0.0 --port {remote_port} --logdir {logdir}",
