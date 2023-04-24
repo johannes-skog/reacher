@@ -490,7 +490,7 @@ class ReacherDocker(Reacher):
 
     def _setup_remote(self):
 
-        super()._setup_remote()
+        super().setup()
 
         self._client.upload(
             self._build_context,
@@ -527,6 +527,8 @@ class ReacherDocker(Reacher):
     def build(self):
 
         self.clear()
+
+        self._setup_remote()
 
         self._client.execute_command(
             f"docker build -t {self._build_name} {os.path.join(self.build_path, self._build_context)}",
@@ -666,7 +668,6 @@ class Handler(SocketServer.BaseRequestHandler):
         self.request.close()
         print("Tunnel closed from %r" % (peername,))
 
-
 def forward_tunnel(local_port, remote_host, remote_port, transport):
 
     class SubHander(Handler):
@@ -745,19 +746,22 @@ class PortForwarding(object):
 ## Some helper functions for creating notebooks and tensorboards
 
 def create_notebook(
-        reacher: Reacher,
-        remote_port: int,
-        local_port: int,
-        paramiko: bool = False
-    ):
+    reacher: Reacher,
+    remote_port: int,
+    local_port: int,
+    paramiko: bool = False
+):
+
+    import time 
 
     reacher.execute_command(
         f"jupyter notebook --ip 0.0.0.0 --allow-root --port {remote_port}",
         wrap_in_screen=True,
         named_session="notebook",
         ignore_output=True,
-        timeout=1,
     )
+
+    time.sleep(1)
 
     reacher.add_port_forward(remote_port=remote_port, local_port=local_port, paramiko=paramiko)
 
@@ -775,6 +779,8 @@ def create_tensorboard(
     logdir: str = "artifacts"
 ):
     
+    import time 
+    
     reacher.execute_command(f"mkdir -p {logdir}")
 
     reacher.execute_command(
@@ -782,8 +788,9 @@ def create_tensorboard(
         wrap_in_screen=True,
         named_session="tensorboard",
         ignore_output=True,
-        timeout=1,
     )
+
+    time.sleep(1)
 
     reacher.add_port_forward(remote_port=remote_port, local_port=local_port, paramiko=paramiko)
 
